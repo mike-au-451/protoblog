@@ -130,7 +130,7 @@ func (bdb *DB) getBodies(entries []BlogEntry) bool {
 	)	
 
 	for ii, _ := range entries {
-		buf, ok := bdb.cc.Get(entries[ii].Body)
+		buf, ok := bdb.cc.Get("assets/" + entries[ii].Body)
 		if !ok {
 			log.Error().Msg("failed to get body")
 			return false

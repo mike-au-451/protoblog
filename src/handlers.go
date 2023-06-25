@@ -33,7 +33,7 @@ func hGet(w http.ResponseWriter, r *http.Request, rid string) {
 	case "/entries":
 		hGetEntries(w, r, rid)
 	default:
-		body, ok := cc.Get(r.URL.Path[1:])
+		body, ok := cc.Get("assets/" + r.URL.Path[1:])
 		if !ok {
 			r404(w, r, rid, r.URL.Path)
 			break
@@ -67,7 +67,7 @@ func hGetEntries(w http.ResponseWriter, r *http.Request, rid string) {
 
 	body, err := json.Marshal(entries)
 	if err != nil {
-		log.Printf("%s: hGetEntries: failed to marshal: %s", rid, err)
+		log.Error().Msg(fmt.Sprintf("%s: hGetEntries: failed to marshal: %s", rid, err))
 		r500(w, r, rid, "")
 		return
 	}

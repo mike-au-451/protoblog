@@ -10,3 +10,14 @@ CREATE TABLE Entries (
 
 	CONSTRAINT u_entry_version UNIQUE(entryId, version)
 );
+
+DROP TABLE IF EXISTS Tags;
+CREATE TABLE Tags (
+	id INTEGER PRIMARY KEY,
+	tag TEXT,
+	entryUid INTEGER REFERENCES Entries(id),
+
+	-- should be ok considering there will be very few inserts.
+	CONSTRAINT u_tag_entry UNIQUE(tag, entryUid)
+);
+

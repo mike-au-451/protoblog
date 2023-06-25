@@ -1,0 +1,5 @@
+bin/blog
+bin/md2html
+blogfiles/*
+ssh/server.*
+www/assets
