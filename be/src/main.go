@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,10 +11,12 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	
+	// "github.com/yuin/goldmark"
+
 	"main/cache"
 	"main/blogdb"
 	log "main/logger"
+	"main/render"
 )
 
 var (
@@ -33,19 +36,15 @@ func main() {
 
 	blogHost := os.Getenv("BLOG_HOST")
 	blogPort := os.Getenv("BLOG_PORT")
-	blogRoot := os.Getenv("BLOG_ROOT")
-	cacheDir := os.Getenv("CACHE_DIR")
+	assetPath := os.Getenv("ASSET_PATH")
 	cacheSize := os.Getenv("CACHE_SIZE")
-	dbDir := os.Getenv("DB_DIR")
-	dbName := os.Getenv("DB_NAME")
+	dbPath := os.Getenv("DB_PATH")
 
 	log.Info("BLOG_HOST %s", blogHost)
 	log.Info("BLOG_PORT %s", blogPort)
-	log.Info("BLOG_ROOT %s", blogRoot)
-	log.Info("CACHE_DIR %s", cacheDir)
+	log.Info("ASSET_PATH %s", assetPath)
 	log.Info("CACHE_SIZE %s", cacheSize)
-	log.Info("DB_DIR %s", dbDir)
-	log.Info("DB_NAME %s", dbName)
+	log.Info("DB_PATH %s", dbPath)
 
 	if blogHost == "" {
 		log.Fatal("missing BLOG_HOST in %s", "env." + env)
@@ -57,12 +56,12 @@ func main() {
 	}
 
 	xx, _ := strconv.Atoi(cacheSize)
-	cc = cache.New(blogRoot + "/" + cacheDir, xx)
+	cc = cache.New(assetPath, xx)
 	if cc == nil {
 		log.Fatal("failed to get cache")
 	}
 
-	bdb = blogdb.New(blogRoot + "/" + dbDir + "/" + dbName)
+	bdb = blogdb.New(dbPath)
 	if bdb == nil {
 		log.Fatal("failed to get db")
 	}
@@ -76,7 +75,7 @@ func main() {
 func hRoot(w http.ResponseWriter, r *http.Request) {
 	rid := NewRequestId()
 	ctx := context.WithValue(context.Background(), "rid", rid)
-	log.Info("%s hRoot", rid)
+	log.Info("%s hRoot: %s %s %s", rid, r.RemoteAddr, r.Method, r.URL.Path, )
 
 	switch r.Method {
 	case http.MethodGet:
@@ -102,14 +101,30 @@ func hGetEntries(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	/*
+	The blogdb.BlogEntry type is built from database records, in which the
+	blog "body" is a hash reference to the actual markdown.
+
+	TODO:
+	1.  The "body" field is confusingly named.
+	*/
+	md := render.New()
 	for ii := range entries {
-		entries[ii].Body = string(cc.Get(entries[ii].Body))
+		var bb bytes.Buffer
+		err := md.Convert(cc.Get(entries[ii].Body), &bb)
+		if err != nil {
+			log.Error("failed to render markdown: %s", err)
+			r500(ctx, w, r, "markdown render error")
+			return
+		}
+		entries[ii].Body = bb.String()
 	}
 
 	body, err := json.Marshal(entries)
 	if err != nil {
 		log.Error("failed to marshal: %s", err)
 		r500(ctx, w, r, "json.Marshal error")
+		return
 	}
 
 	w.Header().Set("Content-type", "application/json")

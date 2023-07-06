@@ -7,6 +7,10 @@ cache-dir
 	sym-link --> .content/file-content-hash
 
 Useful for images, but useless for blog entries, which have distinct content.
+
+TODO:
+1.  The blog content is markdown on disk, which gets rendered into html.
+    Its is the html that should ne cached, not the markdown,
 */
 package cache
 

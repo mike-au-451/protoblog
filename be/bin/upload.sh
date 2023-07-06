@@ -15,6 +15,26 @@
 # 2.  Implement links.
 # 3.  Implement file lists.
 
+if [[ ! -f "env.${ENV}" ]]
+then
+	echo "missing environment: env.${ENV}"
+	exit
+fi
+
+source env.${ENV}
+
+if [[ -z "${DB_PATH}" ]]
+then
+	echo "missing DB_PATH"
+	exit
+fi
+
+if [[ ! -f "${DB_PATH}" ]]
+then
+	echo "missing database DB_PATH"
+	exit
+fi
+
 SETVISIBLE="0"
 if [[ "$1" == "--show" ]]
 then
@@ -36,27 +56,27 @@ then
 	exit
 fi
 
-case ${ENV} in
-"development")
-	;;
-"production")
-	;;
-*)
-	echo "bad environment: ${ENV}"
-	exit
-	;;
-esac
+# case ${ENV} in
+# "development")
+# 	;;
+# "production")
+# 	;;
+# *)
+# 	echo "bad environment: ${ENV}"
+# 	exit
+# 	;;
+# esac
 # if [[ ! -f "env.${ENV}" ]]
 # then
 # 	echo "missing env.${ENV}"
 # 	exit
 # fi
 
-source env.${ENV}
+# source env.${ENV}
 
-ASSETS="${BLOG_ROOT}/${CACHE_DIR}"
-DB="${BLOG_ROOT}/${DB_DIR}"
-DBNAME=Blog.db
+ASSETS="${ASSET_PATH}"
+# DB="${BLOG_ROOT}/${DB_DIR}"
+# DBNAME=Blog.db
 
 if [[ ! -d "${ASSETS}" ]]
 then
@@ -70,11 +90,11 @@ then
 	exit
 fi
 
-if [[ ! -f "${DB}/${DBNAME}" ]]
-then
-	echo "BUG: db misconfigured: ${DB}/${DBNAME}"
-	exit
-fi
+# if [[ ! -f "${DB}/${DBNAME}" ]]
+# then
+# 	echo "BUG: db misconfigured: ${DB}/${DBNAME}"
+# 	exit
+# fi
 
 function LinkErrors {
 	# echo ">>>LinkErrors"
@@ -167,13 +187,15 @@ function LinkProcessing {
 function MetaTitle {
 	local md=$1
 
-	perl -ne 'BEGIN {$show=0} /:::$/ && {last}; /title:\s*(.*)/ && ($show eq 1) && {print "$1\n"}; /:::meta/ && {$show=1}' < ${md}
+	# perl -ne 'BEGIN {$show=0}; /------$/ && {last}; /title:\s*(.*)/ && ($show eq 1) && {print "$1\n"}; /------/ && {$show=1}' < ${md}
+	perl -ne '$show=0 if /^------$/; print "$1\n" if ($show eq 1 && /title:\s*(.*)/); $show=1 if /^----$/' < ${md}
 }
 
 function MetaTags {
 	local md=$1
 
-	perl -ne 'BEGIN {$show=0} /:::$/ && {last}; /tags:\s*(.*)/ && ($show eq 1) && {print "$1\n"}; /:::meta/ && {$show=1}' < ${md}
+	# perl -ne 'BEGIN {$show=0} /------$/ && {last}; /tags:\s*(.*)/ && ($show eq 1) && {print "$1\n"}; /------/ && {$show=1}' < ${md}
+	perl -ne '$show=0 if /^------$/; print "$1\n" if ($show eq 1 && /tags:\s*(.*)/); $show=1 if /^----$/' < ${md}
 }
 
 # markdown files are the source of truth
@@ -234,7 +256,7 @@ do
 	# if the title is in the db its a new version of an existing entry.
 	# TODO: this stuff should be in a transaction
 	entryuid=""
-	existing=$(echo "SELECT entryid, MAX(version) FROM Entries WHERE title = '${title}' GROUP BY entryid" | sqlite3 "${DB}/${DBNAME}")
+	existing=$(echo "SELECT entryid, MAX(version) FROM Entries WHERE title = '${title}' GROUP BY entryid" | sqlite3 "${DB_PATH}")
 	[[ "${DEBUG}" ]] && echo -e "\texisting: ${existing}"
 	if [[ -z ${existing} ]]
 	then
@@ -254,7 +276,7 @@ do
 			)
 			RETURNING id
 		"
-		entryuid=$(echo ${sql} | sqlite3 "${DB}/${DBNAME}")
+		entryuid=$(echo ${sql} | sqlite3 "${DB_PATH}")
 		if [[ $? -ne 0 ]]
 		then
 			echo "FATAL: failed to insert new entry"
@@ -281,7 +303,7 @@ do
 			)
 			RETURNING id
 		"
-		entryuid=$(echo ${sql} | sqlite3 "${DB}/${DBNAME}")
+		entryuid=$(echo ${sql} | sqlite3 "${DB_PATH}")
 		if [[ $? -ne 0 ]]
 		then
 			echo "FATAL: failed to insert new entry"
@@ -304,14 +326,9 @@ do
 		#   "foo", "bar bing", "bang"
 		#
 		# TODO: embedded commas will break
-		# echo ${tags} \
-		# 	| tr ',' '\n' \
-		# 	| while read; do echo ${REPLY} | awk 'match($0, /"(.*)"/, tag) {print tag[1]}'; done \
-		# 	| while read tag; do echo "INSERT INTO Tags (tag, entryUid ) VALUES ('${tag}', ${entryuid})" | sqlite3 "${DB}/${DBNAME}"; done
-
 		echo "${tags}" \
 			| tr ',' '\n' \
 			| perl -ne '/"(.*)"/ && print"$1\n"' \
-			| while read tag; do echo "INSERT INTO Tags (tag, entryUid ) VALUES ('${tag}', ${entryuid})" | sqlite3 "${DB}/${DBNAME}"; done
+			| while read tag; do echo "INSERT INTO Tags (tag, entryUid ) VALUES ('${tag}', ${entryuid})" | sqlite3 "${DB_PATH}"; done
 	fi
 done

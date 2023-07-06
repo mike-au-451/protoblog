@@ -11,3 +11,10 @@ This is a proof of concept and a mechanism for dogfooding my software.  At the m
 4.  ☐ Use rsync rather than scp.
 5.  ☐ Allow links between blog entries.
 6.  ☐ Implement tags.
+
+001-server-render
+
+`markdown-it` is a server-side rendering engine which uses Nodejs specific features.
+Attempting to use it client-side proved difficult, so move back to server-side rendering
+using the `goldmark` package.
+

@@ -5,9 +5,26 @@
 #   entry list
 #   entry {show|hide} {'title' | --all} [--version 99 | --latest]
 
-ROOT=${PWD}
-DB=${ROOT}/db
-DBNAME=Blog.db
+ENV=${ENV:"development"}
+if [[ ! -f "env.${ENV}" ]]
+then
+	echo "missing environment: env.${ENV}"
+	exit
+fi
+
+source env.${ENV}
+
+if [[ -z "${DB_PATH}" ]]
+then
+	echo "missing DB_PATH"
+	exit
+fi
+
+if [[ ! -f "${DB_PATH}" ]]
+then
+	echo "missing database DB_PATH"
+	exit
+fi
 
 VISIBLE=
 TITLE=
@@ -55,7 +72,7 @@ fi
 
 if [[ "${VISIBLE}" == "list" ]]
 then
-	echo "SELECT entryid, version, title, posted, visible FROM Entries ORDER BY entryid, version DESC" | sqlite3 "${DB}/${DBNAME}" | while read
+	echo "SELECT entryid, version, title, posted, visible FROM Entries ORDER BY entryid, version DESC" | sqlite3 "${DB_PATH}" | while read
 	do
 		entryid=$(echo "$REPLY" | cut -d\| -f1)
 		version=$(echo "$REPLY" | cut -d\| -f2)
@@ -76,14 +93,14 @@ then
 	then
 		where="WHERE title = '${TITLE}'"
 	fi
-	uniqueid=$(echo "SELECT id, MAX(version) FROM Entries ${where} GROUP BY entryId" | sqlite3 "${DB}/${DBNAME}" | cut -d\| -f1 | xargs echo | tr -s ' ' ',')
+	uniqueid=$(echo "SELECT id, MAX(version) FROM Entries ${where} GROUP BY entryId" | sqlite3 "${DB_PATH}" | cut -d\| -f1 | xargs echo | tr -s ' ' ',')
 else
 	where="WHERE version = ${VERSION}"
 	if [[ "${TITLE}" != "--all" ]]
 	then
 		where="${where} AND title = '${TITLE}'"
 	fi
-	uniqueid=$(echo "SELECT id FROM Entries ${where} GROUP BY entryId" | sqlite3 "${DB}/${DBNAME}")
+	uniqueid=$(echo "SELECT id FROM Entries ${where} GROUP BY entryId" | sqlite3 "${DB_PATH}")
 fi
 if [[ ${uniqueid} == "" ]]
 then
@@ -91,7 +108,7 @@ then
 	exit
 fi
 
-echo "UPDATE Entries SET visible = ${VISIBLE} WHERE id IN (${uniqueid})" | sqlite3 "${DB}/${DBNAME}"
+echo "UPDATE Entries SET visible = ${VISIBLE} WHERE id IN (${uniqueid})" | sqlite3 "${DB_PATH}"
 if [[ $? -ne 0 ]]
 then
 	echo "update failed"

@@ -60,11 +60,19 @@ func (d *DB) Entries() []BlogEntry {
 		return entries
 	}
 
+	if !d.getTags(entries) {
+		// a db problem?
+		log.Error("failed to get tags")
+		return nil
+	}
+
 	return entries
 }
 
 // TODO: fix this
 func (d *DB) getTags(entries []BlogEntry) bool {
+	// log.Trace("blogdb.getTags")
+
 	uids := []string{}
 	for idx := range entries {
 		uids = append(uids, fmt.Sprintf("%d", entries[idx].Id))
@@ -92,12 +100,9 @@ func (d *DB) getTags(entries []BlogEntry) bool {
 			return false
 		}
 
-		// _, ok := mm[uid]
-		// if !ok {
-		// 	mm[uid] = []string{}
-		// }
 		mm[uid] = append(mm[uid], tag)
 	}
+
 	for idx := range entries {
 		entries[idx].Tags = mm[entries[idx].Id]
 	}
@@ -114,6 +119,8 @@ func (d *DB) getEntryRows() *sql.Rows {
 }
 
 func (d *DB) getTagRows(uids []string) *sql.Rows {
+	// log.Trace("blogdb.getTagRows")
+
 	sql := strings.Join(uids, "', '")
 	sql = "SELECT entryUid, tag FROM Tags WHERE entryUid IN ('" + sql + "')"
 	return d.getRows(sql)
