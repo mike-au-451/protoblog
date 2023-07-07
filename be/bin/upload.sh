@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# upload [--show] [--verbose] path
-# upload [--show] [--verbose] --files filename...
+# upload [--show] path
+# upload [--show] --files filename...
 # 
 # Uploads all files in "path" to the blog file system
 # and updated the blog DB as neccessary.
@@ -23,6 +23,9 @@ fi
 
 source env.${ENV}
 
+[[ "${VERBOSE}" ]] && echo "DB_PATH: ${DB_PATH}"
+[[ "${VERBOSE}" ]] && echo "ASSET_PATH: ${ASSET_PATH}"
+
 if [[ -z "${DB_PATH}" ]]
 then
 	echo "missing DB_PATH"
@@ -42,13 +45,6 @@ then
 	shift
 fi
 
-VERBOSE=
-if [[ "$1" == "--verbose" ]]
-then
-	VERBOSE="1"
-	shift
-fi
-
 FILEPATH=$(realpath "$1")
 if [[ ! -d ${FILEPATH} ]]
 then
@@ -56,27 +52,7 @@ then
 	exit
 fi
 
-# case ${ENV} in
-# "development")
-# 	;;
-# "production")
-# 	;;
-# *)
-# 	echo "bad environment: ${ENV}"
-# 	exit
-# 	;;
-# esac
-# if [[ ! -f "env.${ENV}" ]]
-# then
-# 	echo "missing env.${ENV}"
-# 	exit
-# fi
-
-# source env.${ENV}
-
 ASSETS="${ASSET_PATH}"
-# DB="${BLOG_ROOT}/${DB_DIR}"
-# DBNAME=Blog.db
 
 if [[ ! -d "${ASSETS}" ]]
 then
@@ -89,12 +65,6 @@ then
 	echo "BUG: missing: ${ASSETS}/.content"
 	exit
 fi
-
-# if [[ ! -f "${DB}/${DBNAME}" ]]
-# then
-# 	echo "BUG: db misconfigured: ${DB}/${DBNAME}"
-# 	exit
-# fi
 
 function LinkErrors {
 	# echo ">>>LinkErrors"
@@ -188,14 +158,14 @@ function MetaTitle {
 	local md=$1
 
 	# perl -ne 'BEGIN {$show=0}; /------$/ && {last}; /title:\s*(.*)/ && ($show eq 1) && {print "$1\n"}; /------/ && {$show=1}' < ${md}
-	perl -ne '$show=0 if /^------$/; print "$1\n" if ($show eq 1 && /title:\s*(.*)/); $show=1 if /^----$/' < ${md}
+	perl -ne '$show=0 if /^------$/; print "$1\n" if ($show eq 1 && /title:\s*(.*?)\s*$/); $show=1 if /^----$/' < ${md}
 }
 
 function MetaTags {
 	local md=$1
 
 	# perl -ne 'BEGIN {$show=0} /------$/ && {last}; /tags:\s*(.*)/ && ($show eq 1) && {print "$1\n"}; /------/ && {$show=1}' < ${md}
-	perl -ne '$show=0 if /^------$/; print "$1\n" if ($show eq 1 && /tags:\s*(.*)/); $show=1 if /^----$/' < ${md}
+	perl -ne '$show=0 if /^------$/; print "$1\n" if ($show eq 1 && /tags:\s*(.*?)\s*$/); $show=1 if /^----$/' < ${md}
 }
 
 # markdown files are the source of truth
@@ -239,7 +209,6 @@ fi
 for md in *.md
 do
 	[[ "${VERBOSE}" ]] && echo -e "\t${md}"
-
 	[[ "${VERBOSE}" ]] && echo -e "\tcopy linked files"
 	LinkProcessing CopyLinked ${md}
 
@@ -248,17 +217,17 @@ do
 	sum=$(md5sum "${md}" | cut -d' ' -f1)
 	posted=$(date -u +"%Y-%m-%d %H:%M:%SZ")
 
-	[[ "${DEBUG}" ]] && echo -e "\ttitle: ${title}, tags: [${tags}], sum: ${sum}, posted: ${posted}"
+	[[ "${DEBUG}" ]] && echo -e "\ttitle: '${title}', tags: [${tags}], sum: ${sum}, posted: ${posted}"
 
 	CopyLinked "" "${md}"
 
 	# if the title is not in the db its a new entry,
 	# if the title is in the db its a new version of an existing entry.
 	# TODO: this stuff should be in a transaction
-	entryuid=""
+	newuid=""
 	existing=$(echo "SELECT entryid, MAX(version) FROM Entries WHERE title = '${title}' GROUP BY entryid" | sqlite3 "${DB_PATH}")
 	[[ "${DEBUG}" ]] && echo -e "\texisting: ${existing}"
-	if [[ -z ${existing} ]]
+	if [[ -z "${existing}" ]]
 	then
 		# not existing, version 1 of a new entry
 		[[ "${VERBOSE}" ]] && echo -e "\tinserting new entry"
@@ -276,7 +245,7 @@ do
 			)
 			RETURNING id
 		"
-		entryuid=$(echo ${sql} | sqlite3 "${DB_PATH}")
+		newuid=$(echo ${sql} | sqlite3 "${DB_PATH}")
 		if [[ $? -ne 0 ]]
 		then
 			echo "FATAL: failed to insert new entry"
@@ -303,23 +272,23 @@ do
 			)
 			RETURNING id
 		"
-		entryuid=$(echo ${sql} | sqlite3 "${DB_PATH}")
+		newuid=$(echo ${sql} | sqlite3 "${DB_PATH}")
 		if [[ $? -ne 0 ]]
 		then
 			echo "FATAL: failed to insert new entry"
 			exit
 		fi
-		[[ "${VERBOSE}" ]] && echo -e "\tnew entryuid: ${entryuid}"
+		[[ "${VERBOSE}" ]] && echo -e "\tnew newuid: ${newuid}"
 	fi
 
 	if [[ -n "$tags" ]]
 	then
-		if [[ -z "${entryuid}" ]]
+		if [[ -z "${newuid}" ]]
 		then
-			echo "BUG: missing entryuid"
+			echo "BUG: missing newuid"
 			exit
 		fi
-		[[ "${VERBOSE}" ]] && echo -e "\ttags for entryuid: ${entryuid}"
+		[[ "${VERBOSE}" ]] && echo -e "\ttags for newuid: ${newuid}"
 
 		# Tags are comma separated, double quoted strings like
 		#
@@ -329,6 +298,6 @@ do
 		echo "${tags}" \
 			| tr ',' '\n' \
 			| perl -ne '/"(.*)"/ && print"$1\n"' \
-			| while read tag; do echo "INSERT INTO Tags (tag, entryUid ) VALUES ('${tag}', ${entryuid})" | sqlite3 "${DB_PATH}"; done
+			| while read tag; do echo "INSERT INTO Tags (tag, entryUid ) VALUES ('${tag}', ${newuid})" | sqlite3 "${DB_PATH}"; done
 	fi
 done

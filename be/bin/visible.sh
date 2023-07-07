@@ -2,10 +2,9 @@
 
 # Shpw or hide an entry
 # 
-#   entry list
-#   entry {show|hide} {'title' | --all} [--version 99 | --latest]
+#   visible list
+#   visible {show|hide} {--title 'title' | --title all} [--version 99 | --version all | --version latest]
 
-ENV=${ENV:"development"}
 if [[ ! -f "env.${ENV}" ]]
 then
 	echo "missing environment: env.${ENV}"
@@ -30,8 +29,15 @@ VISIBLE=
 TITLE=
 VERSION=
 
-VISIBLE=list
-case "$1" in
+if [[ -z "$1" ]]
+then
+	VISIBLE=list
+else
+	VISIBLE="$1"
+	shift
+fi
+
+case "${VISIBLE}" in
 show)
 	VISIBLE=1
 	;;
@@ -45,33 +51,10 @@ list)
 	exit
 	;;
 esac
-shift
-
-if [[ "${VISIBLE}" != "list" ]]
-then
-	TITLE="$1"
-	shift
-
-	if [[ -z "${TITLE}" ]]
-	then
-		echo "missing title"
-		exit
-	fi
-
-	VERSION="latest"
-	case "$1" in
-	--version)
-		shift
-		VERSION="$1"
-		;;
-	--latest)
-		VERSION="latest"
-		;;
-	esac
-fi
 
 if [[ "${VISIBLE}" == "list" ]]
 then
+	# Title and version limits dont apply to listing
 	echo "SELECT entryid, version, title, posted, visible FROM Entries ORDER BY entryid, version DESC" | sqlite3 "${DB_PATH}" | while read
 	do
 		entryid=$(echo "$REPLY" | cut -d\| -f1)
@@ -85,23 +68,81 @@ then
 	exit
 fi
 
-uniqueid=
-if [[ ${VERSION} == "latest" ]]
+TITLE=all
+VERSION=all
+while [[ -n "$1" ]]
+do
+	case "$1" in
+	--title)
+		shift
+		TITLE="$1"
+		;;
+	--version)
+		shift
+		VERSION="$1"
+		;;
+	*)
+		echo "unknown command $1"
+		exit
+	esac
+	shift
+done
+
+[[ ${VERBOSE} ]] && echo "VISIBLE: ${VISIBLE}"
+[[ ${VERBOSE} ]] && echo "TITLE: ${TITLE}"
+[[ ${VERBOSE} ]] && echo "VERSION: ${VERSION}"
+
+# FIXME
+
+select="id, version"
+whereTitle=
+whereVersion=
+group=
+latest=
+
+if [[ "$TITLE" != "all" ]]
 then
-	where=
-	if [[ "${TITLE}" != "--all" ]]
-	then
-		where="WHERE title = '${TITLE}'"
-	fi
-	uniqueid=$(echo "SELECT id, MAX(version) FROM Entries ${where} GROUP BY entryId" | sqlite3 "${DB_PATH}" | cut -d\| -f1 | xargs echo | tr -s ' ' ',')
-else
-	where="WHERE version = ${VERSION}"
-	if [[ "${TITLE}" != "--all" ]]
-	then
-		where="${where} AND title = '${TITLE}'"
-	fi
-	uniqueid=$(echo "SELECT id FROM Entries ${where} GROUP BY entryId" | sqlite3 "${DB_PATH}")
+	whereTitle="title = '${TITLE}'"
 fi
+case "$VERSION" in
+all)
+	;;
+latest)
+	latest=latest
+	select="entryId, MAX(version)"
+	group="GROUP BY entryId"
+	;;
+*)
+	whereVersion="version = ${VERSION}"
+	;;
+esac
+
+[[ ${VERBOSE} ]] && echo "whereTitle: ${whereTitle}"
+[[ ${VERBOSE} ]] && echo "whereVersion: ${whereVersion}"
+
+where=
+for clause in "${whereTitle}" "${whereVersion}"
+do
+	if [[ -n "${clause}" ]]
+	then
+		[[ -n "${where}" ]] && where="${where} AND"
+		where="${where} ${clause}"
+	fi
+done
+[[ -n "${where}" ]] && where="WHERE ${where}"
+
+if [[ -z "${latest}" ]]
+then
+	sql="SELECT ${select} FROM Entries ${where} ${group}"
+else
+	sql="SELECT aa.id, aa.version FROM Entries aa JOIN (SELECT entryId, MAX(version) max FROM Entries ${where} GROUP BY entryid ) bb ON aa.entryId = bb.entryId AND aa.version = bb.max"
+fi
+
+[[ ${VERBOSE} ]] && echo "sql: ${sql}"
+
+uniqueid=$(echo "${sql}" | sqlite3 "${DB_PATH}" | cut -d\| -f1 | xargs echo | tr -s ' ' ',')
+[[ ${VERBOSE} ]] && echo "uniqueid: ${uniqueid}"
+
 if [[ ${uniqueid} == "" ]]
 then
 	echo "failed to find record"
