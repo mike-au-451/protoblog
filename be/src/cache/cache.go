@@ -28,12 +28,14 @@ const contentDir = ".content"
 
 type Cache struct {
 	path string 					// root of the cache directory
-	maxsize int 					//
-	cache map[string]*cacheEntry	//
+	maxsize int 					// start flushing when maxsize pages are in the cache
+	cache map[string]*cacheEntry	// the actual in-memory cache
 }
 
 type cacheEntry struct {
-	page []byte
+	raw []byte
+	rendered string
+	updated bool
 	lastused int64
 }
 
@@ -61,7 +63,30 @@ func (c *Cache) Get(key string) []byte {
 		}
 	}
 
-	return entry.page
+	return entry.raw
+}
+
+func (c *Cache) Updated(key string) bool {
+	log.Trace("cache.Updated(%s)", key)
+
+	entry, ok := c.cache[key]
+	return ok && entry.updated
+}
+
+func (c *Cache) Update(key string, content []byte) error {
+	log.Trace("cache.Update(%s)", key)
+	// log.Debug("...<%s>", content[:50])
+
+	entry, ok := c.cache[key]
+	if !ok {
+		return fmt.Errorf("not in cache")
+	}
+
+	entry.rendered = string(content)
+	entry.raw = []byte{}	// hopefully free the underlaying raw bytes
+	entry.updated = true
+
+	return nil
 }
 
 func (c *Cache) Put(key string, content []byte) error {
@@ -125,13 +150,13 @@ func (c *Cache) read(key string) *cacheEntry {
 	}
 	defer fh.Close()
 
-	page, err := io.ReadAll(fh)
+	raw, err := io.ReadAll(fh)
 	if err != nil {
 		log.Error("failed to read %s, %s", c.path + key, err)
 		return nil
 	}
 
-	entry := cacheEntry{ page: page, lastused: time.Now().Unix() }
+	entry := cacheEntry{ raw: raw, lastused: time.Now().Unix() }
 	c.cache[key] = &entry
 
 	return c.cache[key]

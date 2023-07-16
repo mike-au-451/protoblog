@@ -11,10 +11,9 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
-	// "github.com/yuin/goldmark"
 
-	"main/cache"
 	"main/blogdb"
+	"main/cache"
 	log "main/logger"
 	"main/render"
 )
@@ -101,23 +100,33 @@ func hGetEntries(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Debug("entries before:\n%+v\n", entries)
+
 	/*
 	The blogdb.BlogEntry type is built from database records, in which the
 	blog "body" is a hash reference to the actual markdown.
+	The markdown has to be read and rendered as html, which is then cached.
 
 	TODO:
 	1.  The "body" field is confusingly named.
 	*/
 	md := render.New()
 	for ii := range entries {
-		var bb bytes.Buffer
-		err := md.Convert(cc.Get(entries[ii].Body), &bb)
-		if err != nil {
-			log.Error("failed to render markdown: %s", err)
-			r500(ctx, w, r, "markdown render error")
-			return
+		key := entries[ii].Body
+		content := cc.Get(key)
+		if cc.Updated(key) {
+			entries[ii].Body = string(content)
+		} else {
+			bb := bytes.Buffer{}
+			err := md.Convert(content, &bb)
+			if err != nil {
+				log.Error("failed to render maekdown: %s", err)
+				r500(ctx, w, r, "markdown render error")
+				return
+			}
+			cc.Update(key, bb.Bytes())
+			entries[ii].Body = bb.String()
 		}
-		entries[ii].Body = bb.String()
 	}
 
 	body, err := json.Marshal(entries)
