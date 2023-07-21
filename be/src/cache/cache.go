@@ -24,22 +24,24 @@ import (
 	log "main/logger"
 )
 
-const contentDir = ".content"
+// const contentDir = ".content"
 
 type Cache struct {
 	path string 					// root of the cache directory
-	maxsize int 					//
-	cache map[string]*cacheEntry	//
+	maxsize int 					// start flushing when maxsize pages are in the cache
+	cache map[string]*cacheEntry	// the actual in-memory cache
 }
 
 type cacheEntry struct {
-	page []byte
+	raw []byte
+	rendered []byte
+	updated bool
 	lastused int64
 }
 
 func New(path string, maxsize int) *Cache {
 	if len(path) == 0 {
-		log.Error("empty path")
+		log.Errorf("empty path")
 		return nil
 	}
 	if path[len(path)-1] != '/' {
@@ -49,26 +51,53 @@ func New(path string, maxsize int) *Cache {
 }
 
 func (c *Cache) Get(key string) []byte {
-	// log.Trace("cache.Get(%s)", key)
+	// log.Tracef("cache.Get(%s)", key)
 	
 	// key is a symlink to the actual content
 	entry, ok := c.cache[key]
 	if !ok {
 		entry = c.read(key)
 		if entry == nil {
-			log.Error("failed to read %s", key)
+			log.Errorf("failed to read %s", key)
 			return nil
 		}
 	}
 
-	return entry.page
+	if entry.updated {
+		return entry.rendered
+	} else {
+		return entry.raw
+	}
+}
+
+func (c *Cache) Updated(key string) bool {
+	// log.Tracef("cache.Updated(%s)", key)
+
+	entry, ok := c.cache[key]
+	return ok && entry.updated
+}
+
+func (c *Cache) Update(key string, content []byte) error {
+	// log.Tracef("cache.Update(%s)", key)
+
+	entry, ok := c.cache[key]
+	if !ok {
+		return fmt.Errorf("not in cache")
+	}
+
+	entry.rendered = content
+	entry.raw = []byte{}	// hopefully free the underlaying raw bytes
+	entry.updated = true
+
+	return nil
 }
 
 func (c *Cache) Put(key string, content []byte) error {
-	// log.Trace("cache.Put(%s)", key)
+	// log.Tracef("cache.Put(%s)", key)
 
 	sum := fmt.Sprintf("%x", md5.Sum(content))
-	contentPath := c.path + contentDir + "/" + sum
+	// contentPath := c.path + contentDir + "/" + sum
+	contentPath := c.path + "/" + sum + ".md"
 	keyPath := c.path + key
 
 	contentExists := exists(contentPath)
@@ -118,20 +147,21 @@ func (c *Cache) read(key string) *cacheEntry {
 		c.flush()
 	}
 
-	fh, err := os.Open(c.path + contentDir + "/" + key)
+	// fh, err := os.Open(c.path + contentDir + "/" + key)
+	fh, err := os.Open(c.path + "/" + key)
 	if err != nil {
-		log.Error("failed to open %s, %s", c.path + key, err)
+		log.Errorf("failed to open %s, %s", c.path + key, err)
 		return nil
 	}
 	defer fh.Close()
 
-	page, err := io.ReadAll(fh)
+	raw, err := io.ReadAll(fh)
 	if err != nil {
-		log.Error("failed to read %s, %s", c.path + key, err)
+		log.Errorf("failed to read %s, %s", c.path + key, err)
 		return nil
 	}
 
-	entry := cacheEntry{ page: page, lastused: time.Now().Unix() }
+	entry := cacheEntry{ raw: raw, lastused: time.Now().Unix() }
 	c.cache[key] = &entry
 
 	return c.cache[key]
