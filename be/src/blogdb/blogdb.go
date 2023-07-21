@@ -18,6 +18,7 @@ type DB struct {
 type BlogEntry struct {
 	Id int 			`json:"uniqueId"`
 	Title string 	`json:"title"`
+	Hash string 	`json:"-"`
 	Body string 	`json:"body"`
 	Posted string 	`json:"posted"`
 	Tags []string 	`json:"tags"`
@@ -29,30 +30,30 @@ func New(path string) *DB {
 	d := DB{ path: path }
 	d.db, err = sql.Open("sqlite3", d.path)
 	if err != nil {
-		log.Fatal("failed to open %s: %s", path, err)
+		log.Fatalf("failed to open %s: %s", path, err)
 	}
 
 	return &d
 }
 
 func (d *DB) Close() {
-	log.Info("d.Close")
+	log.Infof("d.Close")
 	d.db.Close()
 }
 
 func (d *DB) Entries() []BlogEntry {
-	// log.Trace("blogdb.Entries")
+	// log.Tracef("blogdb.Entries")
 
 	rows := d.getEntryRows()
 	if rows == nil {
-		log.Error("Entries failed to get rows")
+		log.Errorf("Entries failed to get rows")
 		return nil
 	}
 	defer rows.Close()
 
 	entries := d.getList(rows)
 	if entries == nil {
-		log.Error("Entries failed to get list")
+		log.Errorf("Entries failed to get list")
 		return nil
 	}
 	if len(entries) == 0 {
@@ -62,7 +63,7 @@ func (d *DB) Entries() []BlogEntry {
 
 	if !d.getTags(entries) {
 		// a db problem?
-		log.Error("failed to get tags")
+		log.Errorf("failed to get tags")
 		return nil
 	}
 
@@ -71,7 +72,7 @@ func (d *DB) Entries() []BlogEntry {
 
 // TODO: fix this
 func (d *DB) getTags(entries []BlogEntry) bool {
-	// log.Trace("blogdb.getTags")
+	// log.Tracef("blogdb.getTags")
 
 	uids := []string{}
 	for idx := range entries {
@@ -96,7 +97,7 @@ func (d *DB) getTags(entries []BlogEntry) bool {
 	for rows.Next() {
 		err := rows.Scan(&uid, &tag)
 		if err != nil {
-			log.Error("failed to scan: %s", err)
+			log.Errorf("failed to scan: %s", err)
 			return false
 		}
 
@@ -111,15 +112,15 @@ func (d *DB) getTags(entries []BlogEntry) bool {
 }
 
 func (d *DB) getEntryRows() *sql.Rows {
-	rows := d.getRows("SELECT id, title, body, posted FROM Entries WHERE visible ORDER BY posted DESC")
+	rows := d.getRows("SELECT id, title, hash, posted FROM Entries WHERE visible ORDER BY posted DESC")
 	if rows == nil {
-		log.Error("getEntryRows failed")
+		log.Errorf("getEntryRows failed")
 	}
 	return rows
 }
 
 func (d *DB) getTagRows(uids []string) *sql.Rows {
-	// log.Trace("blogdb.getTagRows")
+	// log.Tracef("blogdb.getTagRows")
 
 	sql := strings.Join(uids, "', '")
 	sql = "SELECT entryUid, tag FROM Tags WHERE entryUid IN ('" + sql + "')"
@@ -129,7 +130,7 @@ func (d *DB) getTagRows(uids []string) *sql.Rows {
 func (d *DB) getRows(sql string) *sql.Rows {
 	rows, err := d.db.Query(sql)
 	if err != nil {
-		log.Error("failed to query %s: %s", d.path, err)
+		log.Errorf("failed to query %s: %s", d.path, err)
 		return nil
 	}
 
@@ -137,22 +138,22 @@ func (d *DB) getRows(sql string) *sql.Rows {
 }
 
 func (d *DB) getList(rows *sql.Rows) []BlogEntry {
-	// log.Trace("blogdb.getList")
+	// log.Tracef("blogdb.getList")
 
 	var (
 		id int
-		title, body, posted string
+		title, hash, posted string
 	)
 
 	entries := []BlogEntry{}
 	for rows.Next() {
-		err := rows.Scan(&id, &title, &body, &posted)
+		err := rows.Scan(&id, &title, &hash, &posted)
 		if err != nil {
-			log.Error("failed to scan: %s", err)
+			log.Errorf("failed to scan: %s", err)
 			return nil
 		}
 
-		entries = append(entries, BlogEntry{Id: id, Title: title, Body: body, Posted: posted, Tags: []string{}})
+		entries = append(entries, BlogEntry{Id: id, Title: title, Hash: hash, Posted: posted, Tags: []string{}})
 	}
 
 	return entries

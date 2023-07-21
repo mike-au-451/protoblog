@@ -24,45 +24,20 @@ var (
 )
 
 func main() {
-	env := os.Getenv("ENV")
-	if env == "" {
-		env = "development"
-	}
-	err := godotenv.Load("env." + env)
-	if err != nil {
-		log.Fatal("failed to load environment %s, %s", "env." + env, err)
+	if !environment() {
+		log.Fatalf("failed to load environment")
 	}
 
-	blogHost := os.Getenv("BLOG_HOST")
-	blogPort := os.Getenv("BLOG_PORT")
-	assetPath := os.Getenv("ASSET_PATH")
-	cacheSize := os.Getenv("CACHE_SIZE")
-	dbPath := os.Getenv("DB_PATH")
-
-	log.Info("BLOG_HOST %s", blogHost)
-	log.Info("BLOG_PORT %s", blogPort)
-	log.Info("ASSET_PATH %s", assetPath)
-	log.Info("CACHE_SIZE %s", cacheSize)
-	log.Info("DB_PATH %s", dbPath)
-
-	if blogHost == "" {
-		log.Fatal("missing BLOG_HOST in %s", "env." + env)
-	}
-
-	hostport := blogHost
-	if blogPort != "" {
-		hostport += ":" + blogPort
-	}
-
-	xx, _ := strconv.Atoi(cacheSize)
-	cc = cache.New(assetPath, xx)
+	hostport := os.Getenv("BLOG_HOST") + ":" + os.Getenv("BLOG_PORT")
+	xx, _ := strconv.Atoi(os.Getenv("CACHE_SIZE"))
+	cc = cache.New(os.Getenv("BLOG_PATH") + "/cache", xx)
 	if cc == nil {
-		log.Fatal("failed to get cache")
+		log.Fatalf("failed to get cache")
 	}
 
-	bdb = blogdb.New(dbPath)
+	bdb = blogdb.New(os.Getenv("DB_PATH"))
 	if bdb == nil {
-		log.Fatal("failed to get db")
+		log.Fatalf("failed to get db")
 	}
 
 	http.HandleFunc("/", hRoot)
@@ -71,10 +46,58 @@ func main() {
 	bdb.Close()
 }
 
+func environment() bool {
+	ok := true
+
+	env := os.Getenv("ENV")
+	if env == "" {
+		env = "development"
+	}
+	err := godotenv.Load("env." + env)
+	if err != nil {
+		log.Errorf("failed to load environment %s, %s", "env." + env, err)
+		ok = false
+	}
+
+	if os.Getenv("BLOG_HOST") == "" {
+		log.Infof("defaulting BLOG_HOST")
+		os.Setenv("BLOG_HOST", "localhost")
+	}
+	if os.Getenv("BLOG_PORT") == "" {
+		log.Infof("defaulting BLOG_PORT")
+		os.Setenv("BLOG_PORT", "8080")
+	}
+	if os.Getenv("BLOG_PATH") == "" {
+		log.Errorf("environment missing BLOG_PATH")
+		ok = false
+	}
+	if os.Getenv("ASSET_PATH") == "" {
+		log.Errorf("environment missing ASSET_PATH")
+		ok = false
+	}
+	if os.Getenv("CACHE_SIZE") == "" {
+		log.Infof("defaulting CACHE_SIZE")
+		os.Setenv("CACHE_SIZE", "10")
+	}
+	if os.Getenv("DB_PATH") == "" {
+		log.Errorf("environment missing DB_PATH")
+		ok = false
+	}
+
+	log.Infof("BLOG_HOST %s", os.Getenv("BLOG_HOST"))
+	log.Infof("BLOG_PORT %s", os.Getenv("BLOG_PORT"))
+	log.Infof("BLOG_PATH %s", os.Getenv("BLOG_PATH"))
+	log.Infof("DB_PATH %s", os.Getenv("DB_PATH"))
+	log.Infof("ASSET_PATH %s", os.Getenv("ASSET_PATH"))
+	log.Infof("CACHE_SIZE %s", os.Getenv("CACHE_SIZE"))
+
+	return ok
+}
+
 func hRoot(w http.ResponseWriter, r *http.Request) {
 	rid := NewRequestId()
 	ctx := context.WithValue(context.Background(), "rid", rid)
-	log.Info("%s hRoot: %s %s %s", rid, r.RemoteAddr, r.Method, r.URL.Path, )
+	log.Infof("%s hRoot: %s %s %s", rid, r.RemoteAddr, r.Method, r.URL.Path, )
 
 	switch r.Method {
 	case http.MethodGet:
@@ -96,23 +119,13 @@ func hGet(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 func hGetEntries(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 	entries := bdb.Entries()
 	if entries == nil {
-		log.Error("failed to get entries")
+		log.Errorf("failed to get entries")
 		return
 	}
 
-	log.Debug("entries before:\n%+v\n", entries)
-
-	/*
-	The blogdb.BlogEntry type is built from database records, in which the
-	blog "body" is a hash reference to the actual markdown.
-	The markdown has to be read and rendered as html, which is then cached.
-
-	TODO:
-	1.  The "body" field is confusingly named.
-	*/
 	md := render.New()
 	for ii := range entries {
-		key := entries[ii].Body
+		key := entries[ii].Hash
 		content := cc.Get(key)
 		if cc.Updated(key) {
 			entries[ii].Body = string(content)
@@ -120,7 +133,7 @@ func hGetEntries(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 			bb := bytes.Buffer{}
 			err := md.Convert(content, &bb)
 			if err != nil {
-				log.Error("failed to render maekdown: %s", err)
+				log.Errorf("failed to render maekdown: %s", err)
 				r500(ctx, w, r, "markdown render error")
 				return
 			}
@@ -131,7 +144,7 @@ func hGetEntries(ctx context.Context, w http.ResponseWriter, r *http.Request) {
 
 	body, err := json.Marshal(entries)
 	if err != nil {
-		log.Error("failed to marshal: %s", err)
+		log.Errorf("failed to marshal: %s", err)
 		r500(ctx, w, r, "json.Marshal error")
 		return
 	}
@@ -157,7 +170,7 @@ const errorFormat = `
 `
 
 func r404(ctx context.Context, w http.ResponseWriter, r *http.Request, msg string) {
-	log.Error("%s r404: %s", ctx.Value("rid"), msg)
+	log.Errorf("%s r404: %s", ctx.Value("rid"), msg)
 
 	w.Header().Set("Content-type", "text/html")
 	w.WriteHeader(http.StatusNotFound)
@@ -165,7 +178,7 @@ func r404(ctx context.Context, w http.ResponseWriter, r *http.Request, msg strin
 }
 
 func r405(ctx context.Context, w http.ResponseWriter, r *http.Request, msg string) {
-	log.Error("%s r405: %s", ctx.Value("rid"), msg)
+	log.Errorf("%s r405: %s", ctx.Value("rid"), msg)
 
 	w.Header().Set("Content-type", "text/html")
 	w.WriteHeader(http.StatusMethodNotAllowed)
@@ -173,7 +186,7 @@ func r405(ctx context.Context, w http.ResponseWriter, r *http.Request, msg strin
 }
 
 func r500(ctx context.Context, w http.ResponseWriter, r *http.Request, msg string) {
-	log.Error("%s r500: %s", ctx.Value("rid"), msg)
+	log.Errorf("%s r500: %s", ctx.Value("rid"), msg)
 
 	errMsg := "Internal Server Error"
 	body := []byte(fmt.Sprintf(errorFormat, errMsg, errMsg, "", ctx.Value("rid")))
